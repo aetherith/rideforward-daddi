@@ -4,13 +4,12 @@
 OBJ
   PWM : "PWMx8"
 
-VAR
-  byte started
+CON
+  START_FREQ = 1000
 
-PUB Print(pin, number)
-  if (!started)
-    PWM.start(0, 1 << pin, number)
-    PWM.duty(Pin, 128)
-    started~~
-  else
-    PWM.set_freq(number)
+PUB Start(pin)
+
+
+PUB Print(pin, value)
+  PWM.start(0, 1 << pin, START_FREQ)
+  PWM.duty(pin, 128)

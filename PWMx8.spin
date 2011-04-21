@@ -79,13 +79,6 @@ PUB start(base, mask, freq)
   else
     return false
 
-PUB set_freq(value)
-
-' changes the output frequency on the fly
-
-  if (cogno)
-    fcb[1] := value
-
 PUB stop
 
 ' This method is used to stop an already-started PWM driver. It returns true if
