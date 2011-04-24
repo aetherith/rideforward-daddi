@@ -6,13 +6,23 @@ CON
 
   RUNNING_LAMP_PIN = 0          'pin for running lamp (indicates when program is running)
 
-  ADC_D_PIN  = 17               'serial pin (out) for ADC                                    
-  ADC_C_PIN = 18                'clock pin for ADC
-  ADC_S_PIN  = 19               'reset pin for ADC
+  ADC_D_PIN  = 16               'serial pin (out) for ADC                                    
+  ADC_C_PIN = 17                'clock pin for ADC
+  ADC_S_PIN  = 18               'reset pin for ADC
   ADC_N_CHANNELS = 8            'number of ADC channels
   ADC_CHANNEL_MASK = %0000000011111111
                                 'first eight bits enable differential mode; last eight enable channels
   ADC_N_SAMPLES = 5             'number of samples to average for each ADC measurement
+
+  CAN_R_PIN = 19                'reset pin for CAN
+  CAN_S_PIN = 20                'CS pin for CAN
+  CAN_RX_PIN = 21               'SPI receive pin for CAN
+  CAN_TX_PIN = 22               'SPI transmit pin for CAN
+  CAN_C_PIN = 23                'SPI clock pin for CAN
+  CAN_INT_PIN = 24              'interrupt pin for CAN
+  CAN_RX0_PIN = 25              'RX0 buffer full pin for CAN
+  CAN_RX1_PIN = 26              'RX1 buffer full pin for CAN
+  CAN_FREQ = 20_000_000         'Frequency of CAN clock (external)
 
   PSU_15_V_PIN = 2              'pin that turns off the 15 V power supples when high
   LCD_PWR_PIN = 3               'pin that turns on the LCD when high
@@ -28,16 +38,19 @@ CON
 
   BATTERY_CHARGE_CAPACITY = 288_000_000
                                 'total charge capacity (mA s) of battery pack
+  CHARGE_RESET_PIN = 4          'hold this pin high to manually reset the battery charge to 100%
 
 OBJ
   ADC : "MCP3208"
   LCD : "LcdOutput"
   EEPROM : "Basic_I2C_Driver"
+  CAN : "MCP2515-Example"
 
 VAR
   word analog_zeros[ADC_N_CHANNELS]
+  byte test_message[4]
 
-PUB main | i_batt, dt, last_cnt
+PUB main | i_batt, dt, last_cnt, i 
   ' running lamp is our first line of defense against bugs
   ' if the lamp is on, the program hasn't crashed
   dira[RUNNING_LAMP_PIN]~~
@@ -45,7 +58,17 @@ PUB main | i_batt, dt, last_cnt
 
   'prepare the ADC
   ADC.start(ADC_D_PIN, ADC_C_PIN, ADC_S_PIN, ADC_CHANNEL_MASK)
-  
+
+  'prepare the CAN controller
+  CAN.Start(CAN_R_PIN, CAN_S_PIN, CAN_INT_PIN, CAN_RX0_PIN, CAN_RX1_PIN, CAN_RX_PIN, CAN_TX_PIN, CAN_C_PIN)
+  CAN.SetCanRate(2)
+  CAN.OpenChannel(CAN#MODE_READWRITE)
+
+  'CAN test
+  repeat i from 0 to 3
+    test_message[i] := i
+  CAN.SendPacket(100, 4, @test_message)
+    
   'perpare the list of values we want to display on the LCD
   'do not change order!
   LCD.start
@@ -58,6 +81,7 @@ PUB main | i_batt, dt, last_cnt
   'prepare digital pins
   dira[PSU_15_V_PIN]~~
   dira[LCD_PWR_PIN]~~
+  dira[CHARGE_RESET_PIN]~
 
   'turn on the LCD
   outa[LCD_PWR_PIN]~~
@@ -89,7 +113,12 @@ PUB main | i_batt, dt, last_cnt
     long[@charge_remaining] := 0 #> (long[@charge_remaining] - i_batt / 1_000 * (dt / (clkfreq / 1_000_000)) / 1_000_000)
 
     'Update the state of charge in EEPROM
-    EEPROM.WriteLong(EEPROM#BootPin, EEPROM#EEPROM, @charge_remaining, long[@charge_remaining])    
+    EEPROM.WriteLong(EEPROM#BootPin, EEPROM#EEPROM, @charge_remaining, long[@charge_remaining])
+
+    'Check for manual state of charge reset
+    'TODO: make this more robust
+    if (ina[CHARGE_RESET_PIN])
+      long[@charge_remaining] := BATTERY_CHARGE_CAPACITY    
 
     'necessary to improve integral precision
     'may remove if the loop gets larger and slower in the future
@@ -114,5 +143,5 @@ PUB measure_analog_zeros | i
   outa[PSU_15_V_PIN]~
 
 DAT
-  charge_remaining      long    288_000_000
+  charge_remaining      long    BATTERY_CHARGE_CAPACITY
   testing               long    144_000_000
