@@ -35,9 +35,10 @@ PUB start
 PUB stop
 '' stops the LCD printing
 
-  if (cogno~)
+  if (cogno)
     LCD.finalize
     cogstop(cogno)
+  cogno~
 
 PUB set_value (n, value) : success
 '' changes one of the displayed values
@@ -71,6 +72,11 @@ PUB add_value (name, unit) : n
   ++n_values
 
   return n_values - 1
+
+PUB clear_values
+'' clears all values from the list
+
+  n_values~
 
 PRI print | value_no, timing
 '' prints values to the LCD periodically
