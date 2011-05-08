@@ -24,13 +24,11 @@ CON
   CAN_RX1_PIN = 26              'RX1 buffer full pin for CAN
   CAN_FREQ = 20_000_000         'Frequency of CAN clock (external)
 
-  KEY_PIN = 5                   'high when key is on
-  CHARGER_PIN = 6               'high when charger is on
-
-  FUEL_GAUGE_PIN = 15           'DAC pin for controlling fuel gauge circuit
+  KEY_PIN = 4                   'high when key is on
+  CHARGER_PIN = 5               'high when charger is on
 
   PSU_15_V_PIN = 2              'pin that turns off the 15 V power supples when high
-  LCD_PWR_PIN = 3               'pin that turns on the LCD when high
+  LCD_PWR_PIN = 15              'pin that turns on the LCD when high
 
   ZERO_WAIT_TIME = 1            'amount of time (s) to wait before measuring zero points
   ZERO_N_SAMPLES = 10           'number of samples to average for zero measurement of each channel
@@ -75,24 +73,18 @@ PUB main
   repeat
     case state
       STATE_KEY :
-        'outa[0]~~
-        'outa[15]~~
         if (ina[KEY_PIN])
           key_spin
         else
           state := STATE_SLEEP
           sleep
       STATE_CHARGER :
-        'outa[0]~~
-        'outa[15]~
         if (ina[CHARGER_PIN])
           charger_spin
         else
           state := STATE_SLEEP
           sleep
       STATE_SLEEP :
-        'outa[0]~
-        'outa[15]~~
         if (ina[KEY_PIN])
           state := STATE_KEY
           wake
@@ -133,8 +125,14 @@ PUB measure_battery_current : i_batt
   dt := cnt - last_cnt
   last_cnt := cnt
 
-PUB measure_analog_zeros | i
+PUB measure_analog_zeros | i, psu_15_v
 '' measures the zero values of the analog inputs
+
+  'store existing power supply state
+  psu_15_v := outa[PSU_15_V_PIN]
+
+  'turn off sensor power supplies
+  outa[PSU_15_V_PIN]~
 
   'wait for readings to stabilize
   waitcnt(ZERO_WAIT_TIME * clkfreq + cnt)
@@ -142,6 +140,9 @@ PUB measure_analog_zeros | i
   ' measure the zero points sequentially
   repeat i from 0 to ADC_N_CHANNELS - 1
     analog_zeros[i] := ADC.average(i, ZERO_N_SAMPLES)
+
+  'return power supplies to initial state
+  outa[PSU_15_V_PIN] := psu_15_v
 
 PRI debug
   dira[RUNNING_LAMP_PIN]~~
@@ -163,8 +164,7 @@ PRI init
   dira[CHARGE_RESET_PIN]~
   dira[KEY_PIN]~
   dira[CHARGER_PIN]~
-  dira[12] := dira[13] := dira[14] := dira[15] := 1
-
+  
   'start in sleep mode
   state := STATE_SLEEP
   sleep
@@ -216,9 +216,6 @@ PRI key_spin | i_batt
     LCD.set_value(2, test_message[0] >> 3)
   else
     LCD.set_value(2, 0)
-
-  'fuel gauge testing
-  outa[12] := outa[13] := outa[14] := outa[15] := 0
    
   'necessary to improve integral precision
   'may remove if the loop gets larger and slower in the future
@@ -257,6 +254,7 @@ PRI sleep
 
   'go to slow clock
   clkset(%0_0_0_00_001, 20_000) '~20kHz no PLL
+  
 PRI wake
 '' happens once each time we leave sleep mode
               
@@ -268,9 +266,7 @@ PRI wake
   'prepare the ADC
   ADC.start(ADC_D_PIN, ADC_C_PIN, ADC_S_PIN, ADC_CHANNEL_MASK)
 
-  'start EEPROM
   'measure the zero values of the analog inputs
-  '(having just left sleep mode, the power supplies will be off)
   measure_analog_zeros
 
   'turn the sensor power supplies back on
