@@ -47,6 +47,10 @@ CON
   STATE_CHARGER = 1             'enumeration representing "charger on" proessing state
   STATE_SLEEP = 2               'enumeration representing sleep state
 
+  EEXCANTempStatusID = 1        'CAN ID of temperature status message set in controller via ccShell
+  EEXCANMechStatusID = 2        'CAN ID of mechanical status message set with ccShell
+  EEXCANElecStatusID = 3        'CAN ID of electrical status message set with ccShell
+  
 OBJ
   ADC : "MCP3208"
   LCD : "LcdOutput"
@@ -57,7 +61,9 @@ VAR
   word analog_zeros[ADC_N_CHANNELS]
   byte state
   long dt, last_cnt
-  long test_message[4]
+  long CAN_Buffer[4]
+  long CAN_Message[8]  'Probably a cleaner way to do this with just bytes but longs are foolproof
+  long msgID, statorT, inverterT, torqueActual, speedActual, powerstageState, activeFault, mechStatCode, batteryV, batteryI, thermLimCause
   long debug_stack[128]
 
 PUB main
@@ -211,16 +217,62 @@ PRI key_spin | i_batt
   LCD.set_value(0, i_batt / 1_000_000)               
   LCD.set_value(1, (long[@charge_remaining] / 1_000) * 100 / (BATTERY_CHARGE_CAPACITY / 1_000))
    
-  'CAN testing
+  {{'CAN testing
   if (CAN.ReceivePacket(@test_message) <> CAN#RXS_NOTHING_READY)
     LCD.set_value(2, test_message[0] >> 3)
   else
     LCD.set_value(2, 0)
+  }}
+
+  CANRead
+  LCD.set_value(2, msgID)
    
   'necessary to improve integral precision
   'may remove if the loop gets larger and slower in the future
   waitcnt(clkfreq / 200 + cnt)
 
+PRI CANRead | i, mask
+'' Reads from the CAN buffer on the MCP2515 and updates global variables based on current status.
+'' Only retrieves one packet at a time from the buffer.  We're assuming that our main loop runs faster
+'' than the controller outputs messages on CAN so we will always have time to retrieve them.
+  mask := %11111111000000000000000000000000
+  if (CAN.ReceivePacket(@CAN_Buffer) <> CAN#RXS_NOTHING_READY)
+    msgID := (CAN_Buffer[0]>>21) ' Shifts 11 ID bits into correct spot for decimal translation
+
+   'Iteratively masks out the byte we are looking for and shifts it down the the LSB for decimal translation
+    repeat i from 0 to 3
+      CAN_Message[i] := (CAN_Buffer[1] AND (mask >> 8*i))>>(24 - 8*i)
+    repeat i from 4 to 7
+      CAN_Message[i] := (CAN_Buffer[2] AND (mask >> 8*(i-4)))>>(24 - 8*(i-4))
+
+    'Not 100% sure if this could be converted into a switch statement but probably safer to leave it as a series of IFs
+    if (msgID == EEXCANTempStatusID)
+      statorT := (9/5)*(CAN_Message[0]-40)+32  'Stores in temperature in Fahrenheit, could be reduced to -8 but left for clarity
+      inverterT := (9/5)*(CAN_Message[1]-40)+32
+
+    if (msgID == EEXCANMechStatusID)
+      'Torque is two bytes long so we have to play around a little
+      torqueActual := CAN_Message[0]
+      torqueActual := torqueActual<<8 'Store and push back MSB
+      torqueActual += CAN_Message[1]  'Add LSB
+      torqueActual -= 3000            'Subtract the offset (Nm)
+      speedActual := CAN_Message[2]
+      speedActual := speedActual<<8
+      speedActual += CAN_Message[3]
+      speedActual -= 20000            'Subtract offset (RPM)
+      powerstageState := CAN_Message[4]
+      activeFault := CAN_Message[5]
+      mechStatCode := CAN_Message[6]
+    if (msgID == EEXCANElecStatusID)
+      batteryV := CAN_Message[0]
+      batteryV := batteryV<<8
+      batteryV += CAN_Message[1]
+      batteryI := CAN_Message[2]
+      batteryI := batteryI<<8
+      batteryI += CAN_Message[3]
+      batteryI -= 500
+      thermLimCause := CAN_Message[4]
+      
 PRI charger_spin
 '' charger spin loop - happens repeatedly as often as possible while charger is on
 
