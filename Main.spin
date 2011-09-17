@@ -50,6 +50,11 @@ CON
   EEXCANTempStatusID = 1        'CAN ID of temperature status message set in controller via ccShell
   EEXCANMechStatusID = 2        'CAN ID of mechanical status message set with ccShell
   EEXCANElecStatusID = 3        'CAN ID of electrical status message set with ccShell
+
+  ''Debug LED Pins
+  DEBUG1 = 15
+  DEBUG2 = 10
+  DEBUG3 = 9
   
 OBJ
   ADC : "MCP3208"
@@ -151,10 +156,9 @@ PUB measure_analog_zeros | i, psu_15_v
   outa[PSU_15_V_PIN] := psu_15_v
 
 PRI debug
-  dira[RUNNING_LAMP_PIN]~~
-  repeat
-    !outa[RUNNING_LAMP_PIN]
-    waitcnt(clkfreq / 4 + cnt)
+  outa[DEBUG3]~~
+  ''waitcnt(clkfreq / 80_000 + cnt)
+  ''outa[DEBUG1]~
 
 PRI init
 '' happens once when the program starts running (very rarely is this called;
@@ -170,6 +174,9 @@ PRI init
   dira[CHARGE_RESET_PIN]~
   dira[KEY_PIN]~
   dira[CHARGER_PIN]~
+  dira[DEBUG1]~~
+  dira[DEBUG2]~~
+  dira[DEBUG3]~~
   
   'start in sleep mode
   state := STATE_SLEEP
@@ -184,7 +191,7 @@ PRI key_init
   CAN.OpenChannel(CAN#MODE_READONLY)
 
   'turn on the LCD
-  outa[LCD_PWR_PIN]~~
+  ''outa[LCD_PWR_PIN]~~
 
   'start the LCD
   LCD.start
@@ -210,7 +217,6 @@ PRI charger_init
 
 PRI key_spin | i_batt
 '' key spin loop - happens repeatedly as often as possible while key is on
-
   i_batt := measure_battery_current
    
   'output values to LCD
@@ -247,11 +253,13 @@ PRI CANRead | i, mask
 
     'Not 100% sure if this could be converted into a switch statement but probably safer to leave it as a series of IFs
     if (msgID == EEXCANTempStatusID)
+      !outa[DEBUG1]
       statorT := (9/5)*(CAN_Message[0]-40)+32  'Stores in temperature in Fahrenheit, could be reduced to -8 but left for clarity
       inverterT := (9/5)*(CAN_Message[1]-40)+32
 
     if (msgID == EEXCANMechStatusID)
       'Torque is two bytes long so we have to play around a little
+      !outa[DEBUG2]
       torqueActual := CAN_Message[0]
       torqueActual := torqueActual<<8 'Store and push back MSB
       torqueActual += CAN_Message[1]  'Add LSB
@@ -263,7 +271,9 @@ PRI CANRead | i, mask
       powerstageState := CAN_Message[4]
       activeFault := CAN_Message[5]
       mechStatCode := CAN_Message[6]
+      
     if (msgID == EEXCANElecStatusID)
+      !outa[DEBUG3]
       batteryV := CAN_Message[0]
       batteryV := batteryV<<8
       batteryV += CAN_Message[1]
