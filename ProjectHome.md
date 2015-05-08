@@ -1,0 +1,1 @@
+Uses the Propeller platform to monitor key variables related to electric car performance - battery voltage, current, regenerative braking, energy efficiency, state of charge, range, and temperature. Logs these variables over time and displays the most important ones to the driver.
